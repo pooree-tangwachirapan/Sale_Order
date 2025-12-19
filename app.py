@@ -3,172 +3,292 @@ import pandas as pd
 from datetime import datetime
 from fpdf import FPDF
 import base64
+import os
 
-# --- 1. ตั้งค่า Config และจำลองฐานข้อมูล (Mock Database) ---
-st.set_page_config(page_title="Mobile Sale Pro", layout="centered")
+# --- 1. CONFIG & SETUP ---
+st.set_page_config(page_title="Mobile Sale System", layout="centered")
 
-# จำลองไฟล์ CSV ฐานข้อมูล (ในใช้งานจริง ส่วนนี้จะโหลดจาก GitHub/File)
-if 'db_orders' not in st.session_state:
-    # สมมติว่ามีข้อมูลเก่าอยู่แล้ว และมีคอลัมน์ 'owner' เพื่อระบุเจ้าของ
-    data = {
-        'order_id': ['ORD-001', 'ORD-002'],
-        'customer': ['บริษัท ก จำกัด', 'ร้าน ข ขายดี'],
-        'items': ['สินค้า A (10)', 'สินค้า C (5)'],
-        'total': [1000, 2500],
-        'date': ['2023-10-01', '2023-10-02'],
-        'owner': ['sale01', 'sale02'] # <--- Key User แยกข้อมูล
-    }
-    st.session_state.db_orders = pd.DataFrame(data)
+# ชื่อไฟล์ Database (CSV)
+FILE_ORDERS = "db_orders.csv"
+FILE_CUSTOMERS = "db_customers.csv"
+FILE_PRODUCTS = "db_products.csv"
 
-if 'db_customers' not in st.session_state:
-    data_cust = {
-        'name': ['บริษัท ก จำกัด', 'ร้าน ข ขายดี', 'ลูกค้าทั่วไป'],
-        'address': ['123 กทม.', '456 เชียงใหม่', '789 ภูเก็ต'],
-        'owner': ['sale01', 'sale02', 'sale01'] # ลูกค้าของใครของมัน
-    }
-    st.session_state.db_customers = pd.DataFrame(data_cust)
+# --- 2. HELPER FUNCTIONS (จัดการฐานข้อมูล) ---
+def load_data(filename, columns):
+    """โหลดข้อมูลจาก CSV ถ้าไม่มีไฟล์ให้สร้างใหม่"""
+    if not os.path.exists(filename):
+        df = pd.DataFrame(columns=columns)
+        df.to_csv(filename, index=False)
+        return df
+    return pd.read_csv(filename)
 
-# --- 2. ระบบ Login (Simple Authentication) ---
+def save_data(df, filename):
+    """บันทึกข้อมูลลง CSV"""
+    df.to_csv(filename, index=False)
+
+# โหลดข้อมูลเข้า Session State
+if 'data_loaded' not in st.session_state:
+    st.session_state.df_orders = load_data(FILE_ORDERS, ['order_id', 'date', 'customer', 'items', 'total_price', 'owner', 'note'])
+    st.session_state.df_customers = load_data(FILE_CUSTOMERS, ['name', 'address', 'phone', 'tax_id', 'owner'])
+    st.session_state.df_products = load_data(FILE_PRODUCTS, ['sku', 'name', 'price'])
+    
+    # ถ้าสินค้ายังว่าง ให้ใส่ตัวอย่างไปก่อน
+    if st.session_state.df_products.empty:
+        sample_products = pd.DataFrame([
+            ['P001', 'สินค้าตัวอย่าง A', 100],
+            ['P002', 'สินค้าตัวอย่าง B', 250]
+        ], columns=['sku', 'name', 'price'])
+        st.session_state.df_products = pd.concat([st.session_state.df_products, sample_products], ignore_index=True)
+        save_data(st.session_state.df_products, FILE_PRODUCTS)
+    
+    st.session_state.data_loaded = True
+
+# --- 3. AUTHENTICATION (Login) ---
 def check_login(username, password):
-    # ในใช้งานจริงควรเก็บ Password ที่ Hash แล้ว หรือดึงจากไฟล์ users.csv
-    valid_users = {
+    # ในการใช้งานจริง ควรซ่อน Password หรือใช้ Environment Variable
+    users = {
         "sale01": "1234",
         "sale02": "1234",
-        "manager": "admin"
+        "admin": "admin"
     }
-    if username in valid_users and valid_users[username] == password:
-        return True
-    return False
+    return users.get(username) == password
 
-# ตรวจสอบ Session การล็อกอิน
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
-    st.session_state.user_id = ""
+    st.session_state.user = None
 
-# --- 3. หน้าจอ Login ---
+# หน้า Login
 if not st.session_state.logged_in:
-    st.header("🔐 เข้าสู่ระบบ (Sale Login)")
-    
-    with st.form("login_form"):
-        username_input = st.text_input("Username (ลองใช้ sale01)")
-        password_input = st.text_input("Password (ลองใช้ 1234)", type="password")
-        submit_login = st.form_submit_button("Login")
-        
-        if submit_login:
-            if check_login(username_input, password_input):
+    st.markdown("## 🔐 เข้าสู่ระบบขาย (Mobile Sale)")
+    with st.form("login"):
+        usr = st.text_input("Username", placeholder="เช่น sale01")
+        pwd = st.text_input("Password", type="password", placeholder="เช่น 1234")
+        btn = st.form_submit_button("Login", type="primary")
+        if btn:
+            if check_login(usr, pwd):
                 st.session_state.logged_in = True
-                st.session_state.user_id = username_input
-                st.success("เข้าสู่ระบบสำเร็จ!")
-                st.rerun() # รีโหลดหน้าเพื่อเข้าสู่โปรแกรมหลัก
+                st.session_state.user = usr
+                st.rerun()
             else:
-                st.error("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
-    st.stop() # หยุดการทำงานไม่ให้โชว์ส่วนอื่นถ้ายังไม่ล็อกอิน
+                st.error("Username หรือ Password ผิดพลาด")
+    st.stop()
 
-# ==========================================
-#  🌟 ส่วนโปรแกรมหลัก (เข้าถึงได้เฉพาะหลัง Login)
-# ==========================================
+# --- 4. PDF GENERATOR (รองรับภาษาไทย) ---
+def create_pdf(order_data, items_df):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # *** สำคัญ: พยายามโหลดฟอนต์ไทย ***
+    font_path = 'THSarabunNew.ttf' # ต้องมีไฟล์นี้ในโฟลเดอร์เดียวกัน
+    has_font = os.path.exists(font_path)
+    
+    if has_font:
+        pdf.add_font('THSarabunNew', '', font_path, uni=True)
+        pdf.set_font('THSarabunNew', '', 16)
+    else:
+        pdf.set_font('Arial', '', 12) # Fallback ถ้าไม่มีฟอนต์ไทย
+    
+    # Header
+    pdf.cell(0, 10, f"SALE ORDER / ใบสั่งขาย", 0, 1, 'C')
+    pdf.ln(5)
+    
+    # Customer Info
+    pdf.cell(0, 8, f"NO: {order_data['order_id']}  |  Date: {order_data['date']}", 0, 1, 'R')
+    if has_font:
+        pdf.cell(0, 8, f"Customer: {order_data['customer']}", 0, 1, 'L')
+        # ดึงที่อยู่
+        cust_info = st.session_state.df_customers[st.session_state.df_customers['name'] == order_data['customer']]
+        if not cust_info.empty:
+            address = cust_info.iloc[0]['address']
+            pdf.multi_cell(0, 8, f"Address: {address}")
+    else:
+         pdf.cell(0, 8, f"Customer: {order_data['customer']} (Thai font missing)", 0, 1, 'L')
 
-current_user = st.session_state.user_id
-st.sidebar.write(f"👤 ผู้ใช้งาน: **{current_user}**")
-if st.sidebar.button("Logout"):
+    pdf.ln(10)
+    
+    # Table Header
+    pdf.set_fill_color(200, 220, 255)
+    pdf.cell(100, 10, "Description", 1, 0, 'C', 1)
+    pdf.cell(30, 10, "Qty", 1, 0, 'C', 1)
+    pdf.cell(30, 10, "Price", 1, 0, 'C', 1)
+    pdf.cell(30, 10, "Total", 1, 1, 'C', 1)
+    
+    # Items
+    total = 0
+    for idx, row in items_df.iterrows():
+        name = row['name']
+        qty = row['qty']
+        price = row['price']
+        line_total = qty * price
+        total += line_total
+        
+        pdf.cell(100, 10, f"{name}", 1)
+        pdf.cell(30, 10, f"{qty}", 1, 0, 'C')
+        pdf.cell(30, 10, f"{price:,.0f}", 1, 0, 'R')
+        pdf.cell(30, 10, f"{line_total:,.2f}", 1, 1, 'R')
+        
+    # Grand Total
+    pdf.ln(5)
+    pdf.set_font(style='B')
+    pdf.cell(160, 10, "GRAND TOTAL", 0, 0, 'R')
+    pdf.cell(30, 10, f"{total:,.2f}", 1, 1, 'R')
+    
+    # Footer
+    pdf.ln(20)
+    pdf.set_font(style='')
+    pdf.cell(100, 10, "____________________", 0, 0, 'C')
+    pdf.cell(90, 10, "____________________", 0, 1, 'C')
+    pdf.cell(100, 5, "Authorized Signature", 0, 0, 'C')
+    pdf.cell(90, 5, "Customer Signature", 0, 1, 'C')
+
+    return pdf.output(dest='S').encode('latin-1')
+
+# --- 5. MAIN APP UI ---
+user = st.session_state.user
+st.sidebar.title(f"👤 {user}")
+if st.sidebar.button("Logout", type="secondary"):
     st.session_state.logged_in = False
     st.rerun()
 
-st.title(f"📱 เปิดบิลขาย ({current_user})")
+# กรองข้อมูลเฉพาะ User นี้ (Data Isolation)
+my_customers = st.session_state.df_customers[st.session_state.df_customers['owner'] == user]
+all_products = st.session_state.df_products # สินค้าเห็นร่วมกันหมด
 
-# กรองข้อมูลเฉพาะของ User คนนั้น (Key User Logic)
-my_orders = st.session_state.db_orders[st.session_state.db_orders['owner'] == current_user]
-my_customers = st.session_state.db_customers[st.session_state.db_customers['owner'] == current_user]
+tab_sale, tab_cust, tab_prod, tab_hist = st.tabs(["🛒 เปิดบิล", "👥 ลูกค้า", "📦 สินค้า", "📜 ประวัติ"])
 
-# Tabs เมนู
-tab1, tab2, tab3 = st.tabs(["🛒 เปิดบิล", "📜 ประวัติบิล", "👥 ลูกค้า"])
-
-# --- Tab 1: เปิดบิล (Create Order) ---
-with tab1:
-    st.subheader("สร้างรายการใหม่")
+# === TAB 1: เปิดบิล ===
+with tab_sale:
+    st.subheader("สร้างใบสั่งขายใหม่")
     
-    # 1. เลือกลูกค้า (เห็นเฉพาะลูกค้าของตัวเอง)
-    cust_options = my_customers['name'].tolist()
-    if not cust_options:
-        st.warning("ยังไม่มีข้อมูลลูกค้า กรุณาเพิ่มในแท็บลูกค้า")
-        selected_cust = None
-    else:
-        selected_cust = st.selectbox("เลือกลูกค้า", cust_options)
-        # แสดงที่อยู่ลูกค้าอัตโนมัติ
-        if selected_cust:
-            cust_addr = my_customers.loc[my_customers['name'] == selected_cust, 'address'].values[0]
-            st.caption(f"📍 ที่อยู่: {cust_addr}")
+    # Session สำหรับตะกร้าสินค้าชั่วคราว
+    if 'cart' not in st.session_state: st.session_state.cart = []
+    
+    # 1. เลือกลูกค้า
+    cust_list = my_customers['name'].tolist()
+    selected_cust = st.selectbox("1. เลือกลูกค้า", [""] + cust_list)
+    
+    if selected_cust:
+        cust_data = my_customers[my_customers['name'] == selected_cust].iloc[0]
+        st.info(f"📍 {cust_data['address']} (โทร: {cust_data['phone']})")
 
-    st.divider()
-
-    # 2. เลือกสินค้า (Mockup)
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        item_name = st.selectbox("สินค้า", ["สินค้า A (100.-)", "สินค้า B (200.-)", "สินค้า C (500.-)"])
-    with col2:
+    # 2. เลือกสินค้า
+    st.write("---")
+    c1, c2, c3 = st.columns([3, 1, 1])
+    with c1:
+        prod_name = st.selectbox("2. เลือกสินค้า", all_products['name'].tolist())
+    with c2:
         qty = st.number_input("จำนวน", 1, 100, 1)
+    with c3:
+        st.write("")
+        st.write("")
+        add_btn = st.button("➕ เพิ่ม")
 
-    # คำนวณราคาง่ายๆ (ในโค้ดจริงต้องดึงจาก DB สินค้า)
-    price_map = {"สินค้า A (100.-)": 100, "สินค้า B (200.-)": 200, "สินค้า C (500.-)": 500}
-    unit_price = price_map[item_name]
-    total_price = unit_price * qty
-    
-    st.info(f"💰 ยอดรวมรายการนี้: {total_price:,.2f} บาท")
-    
-    if st.button("✅ บันทึกและสร้าง PDF", use_container_width=True, type="primary"):
-        # 1. บันทึกลง Database (Session State -> CSV)
-        new_order = {
-            'order_id': f"ORD-{len(st.session_state.db_orders)+1:03d}",
-            'customer': selected_cust,
-            'items': f"{item_name} x {qty}",
-            'total': total_price,
-            'date': datetime.now().strftime("%Y-%m-%d"),
-            'owner': current_user # <--- 🔑 Key สำคัญ: แปะชื่อเจ้าของ
-        }
-        # เพิ่มข้อมูลใหม่ลงใน DataFrame กลาง
-        st.session_state.db_orders = pd.concat([st.session_state.db_orders, pd.DataFrame([new_order])], ignore_index=True)
-        
-        st.success("บันทึกข้อมูลเรียบร้อย!")
-        
-        # 2. สร้าง PDF (จำลอง)
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=12) # *หมายเหตุ: ต้องลง font ไทยเพิ่มถ้าจะใช้ภาษาไทยใน PDF
-        pdf.cell(200, 10, txt=f"Order ID: {new_order['order_id']}", ln=1, align='C')
-        pdf.cell(200, 10, txt=f"Customer: {selected_cust} (User: {current_user})", ln=2, align='L')
-        pdf.cell(200, 10, txt=f"Item: {new_order['items']}", ln=3, align='L')
-        pdf.cell(200, 10, txt=f"Total: {total_price} THB", ln=4, align='R')
-        
-        # แปลงเป็น Binary เพื่อดาวน์โหลด
-        pdf_content = pdf.output(dest='S').encode('latin-1')
-        b64 = base64.b64encode(pdf_content).decode()
-        href = f'<a href="data:application/octet-stream;base64,{b64}" download="order_{new_order["order_id"]}.pdf" style="text-decoration:none;"><button style="width:100%;padding:10px;background-color:red;color:white;border:none;border-radius:5px;">📥 ดาวน์โหลด PDF</button></a>'
-        st.markdown(href, unsafe_allow_html=True)
+    if add_btn and prod_name:
+        p_price = all_products[all_products['name'] == prod_name].iloc[0]['price']
+        st.session_state.cart.append({'name': prod_name, 'qty': qty, 'price': p_price})
+        st.toast(f"เพิ่ม {prod_name} แล้ว")
 
-# --- Tab 2: ประวัติบิล (History) ---
-with tab2:
-    st.subheader(f"ประวัติการขายของ {current_user}")
-    # แสดงเฉพาะ Order ของ User นี้เท่านั้น
-    st.dataframe(my_orders[['order_id', 'date', 'customer', 'total']], hide_index=True, use_container_width=True)
-
-# --- Tab 3: จัดการลูกค้า (Customers) ---
-with tab3:
-    st.subheader("เพิ่มลูกค้าใหม่")
-    with st.form("add_cust_form"):
-        new_cust_name = st.text_input("ชื่อลูกค้า")
-        new_cust_addr = st.text_area("ที่อยู่")
-        submitted = st.form_submit_button("บันทึกลูกค้า")
+    # 3. สรุปรายการ
+    if st.session_state.cart:
+        st.write("---")
+        cart_df = pd.DataFrame(st.session_state.cart)
+        cart_df['Total'] = cart_df['qty'] * cart_df['price']
         
-        if submitted and new_cust_name:
-            new_cust_data = {
-                'name': new_cust_name,
-                'address': new_cust_addr,
-                'owner': current_user # <--- 🔑 แปะชื่อเจ้าของ
-            }
-            st.session_state.db_customers = pd.concat([st.session_state.db_customers, pd.DataFrame([new_cust_data])], ignore_index=True)
-            st.success(f"เพิ่มลูกค้า {new_cust_name} แล้ว")
-            st.rerun()
+        st.dataframe(cart_df, use_container_width=True, hide_index=True)
+        grand_total = cart_df['Total'].sum()
+        st.metric("ยอดรวมสุทธิ", f"{grand_total:,.2f} บาท")
+        
+        note = st.text_area("หมายเหตุ", height=60)
+        
+        if st.button("✅ บันทึกและสร้าง PDF", type="primary", use_container_width=True):
+            # Generate Order ID
+            order_id = f"INV-{datetime.now().strftime('%Y%m%d')}-{len(st.session_state.df_orders)+1:03d}"
             
-    st.divider()
-    st.write("รายชื่อลูกค้าของคุณ:")
-    st.dataframe(my_customers[['name', 'address']], hide_index=True, use_container_width=True)
+            # Save to DF
+            new_order = {
+                'order_id': order_id,
+                'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                'customer': selected_cust,
+                'items': str(st.session_state.cart), # เก็บแบบ Text ง่ายๆ
+                'total_price': grand_total,
+                'owner': user,
+                'note': note
+            }
+            # Add to Main DF and Save CSV
+            st.session_state.df_orders = pd.concat([st.session_state.df_orders, pd.DataFrame([new_order])], ignore_index=True)
+            save_data(st.session_state.df_orders, FILE_ORDERS)
+            
+            # Generate PDF
+            pdf_bytes = create_pdf(new_order, cart_df)
+            b64 = base64.b64encode(pdf_bytes).decode()
+            
+            # Show Download & Email Link
+            st.success("บันทึกข้อมูลเรียบร้อย!")
+            
+            col_d, col_e = st.columns(2)
+            with col_d:
+                href = f'<a href="data:application/octet-stream;base64,{b64}" download="{order_id}.pdf" style="text-decoration:none;"><button style="width:100%;padding:10px;background:green;color:white;border:none;border-radius:5px;">📥 โหลด PDF</button></a>'
+                st.markdown(href, unsafe_allow_html=True)
+            with col_e:
+                # สร้าง Mailto Link (Client Side Email)
+                subject = f"ใบสั่งซื้อ {order_id}"
+                body = f"เรียน {selected_cust},%0D%0A%0D%0Aแนบใบสั่งซื้อ {order_id} ยอดรวม {grand_total:,.2f} บาท%0D%0A%0D%0Aขอบคุณครับ"
+                mail_href = f'<a href="mailto:?subject={subject}&body={body}" target="_blank" style="text-decoration:none;"><button style="width:100%;padding:10px;background:orange;color:white;border:none;border-radius:5px;">📧 ส่งอีเมล</button></a>'
+                st.markdown(mail_href, unsafe_allow_html=True)
+                
+            # Clear Cart
+            st.session_state.cart = []
+
+# === TAB 2: ลูกค้า ===
+with tab_cust:
+    st.subheader("จัดการลูกค้า")
+    with st.expander("➕ เพิ่มลูกค้าใหม่"):
+        with st.form("add_cust"):
+            n_name = st.text_input("ชื่อลูกค้า/บริษัท")
+            n_addr = st.text_area("ที่อยู่")
+            n_phone = st.text_input("เบอร์โทร")
+            n_tax = st.text_input("เลขผู้เสียภาษี")
+            if st.form_submit_button("บันทึก"):
+                new_c = pd.DataFrame([{
+                    'name': n_name, 'address': n_addr, 'phone': n_phone, 
+                    'tax_id': n_tax, 'owner': user
+                }])
+                st.session_state.df_customers = pd.concat([st.session_state.df_customers, new_c], ignore_index=True)
+                save_data(st.session_state.df_customers, FILE_CUSTOMERS)
+                st.success(f"เพิ่ม {n_name} แล้ว")
+                st.rerun()
+    
+    st.dataframe(my_customers, hide_index=True, use_container_width=True)
+
+# === TAB 3: สินค้า ===
+with tab_prod:
+    st.subheader("รายการสินค้า (ส่วนกลาง)")
+    with st.expander("➕ เพิ่มสินค้าใหม่"):
+        with st.form("add_prod"):
+            p_sku = st.text_input("รหัสสินค้า (SKU)")
+            p_name = st.text_input("ชื่อสินค้า")
+            p_price = st.number_input("ราคา", 0.0)
+            if st.form_submit_button("บันทึก"):
+                new_p = pd.DataFrame([{'sku': p_sku, 'name': p_name, 'price': p_price}])
+                st.session_state.df_products = pd.concat([st.session_state.df_products, new_p], ignore_index=True)
+                save_data(st.session_state.df_products, FILE_PRODUCTS)
+                st.success("บันทึกสินค้าแล้ว")
+                st.rerun()
+    
+    st.dataframe(all_products, hide_index=True, use_container_width=True)
+
+# === TAB 4: ประวัติ ===
+with tab_hist:
+    st.subheader("ประวัติการขาย")
+    my_orders = st.session_state.df_orders[st.session_state.df_orders['owner'] == user]
+    # เรียงลำดับล่าสุดขึ้นก่อน
+    my_orders = my_orders.sort_values(by='date', ascending=False)
+    
+    if not my_orders.empty:
+        st.dataframe(my_orders[['order_id', 'date', 'customer', 'total_price']], hide_index=True, use_container_width=True)
+        
+        # ปุ่ม Export CSV เพื่อ Backup
+        csv = my_orders.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Backup ประวัติการขาย (CSV)", csv, "my_sales_history.csv", "text/csv")
+    else:
+        st.info("ยังไม่มีรายการขาย")
