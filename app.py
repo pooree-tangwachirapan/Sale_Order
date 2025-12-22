@@ -78,15 +78,16 @@ def create_pdf(order_data, items_df):
     pdf = FPDF()
     pdf.add_page()
     
-    # *** สำคัญ: พยายามโหลดฟอนต์ไทย ***
+    # *** ตรวจสอบฟอนต์ไทย ***
     font_path = 'THSarabunNew.ttf' # ต้องมีไฟล์นี้ในโฟลเดอร์เดียวกัน
     has_font = os.path.exists(font_path)
     
     if has_font:
         pdf.add_font('THSarabunNew', '', font_path, uni=True)
+        pdf.add_font('THSarabunNew', 'B', font_path, uni=True) # เพิ่มตัวหนา (ใช้ไฟล์เดิมถ้าไม่มีไฟล์ bold แยก)
         pdf.set_font('THSarabunNew', '', 16)
     else:
-        pdf.set_font('Arial', '', 12) # Fallback ถ้าไม่มีฟอนต์ไทย
+        pdf.set_font('Arial', '', 12) # Fallback
     
     # Header
     pdf.cell(0, 10, f"SALE ORDER / ใบสั่งขาย", 0, 1, 'C')
@@ -122,27 +123,36 @@ def create_pdf(order_data, items_df):
         line_total = qty * price
         total += line_total
         
+        # Reset font for items
+        if has_font: pdf.set_font('THSarabunNew', '', 16)
+        else: pdf.set_font('Arial', '', 12)
+
         pdf.cell(100, 10, f"{name}", 1)
         pdf.cell(30, 10, f"{qty}", 1, 0, 'C')
         pdf.cell(30, 10, f"{price:,.0f}", 1, 0, 'R')
         pdf.cell(30, 10, f"{line_total:,.2f}", 1, 1, 'R')
         
-    # Grand Total
-    # --- ส่วน Grand Total (แก้ตรงนี้) ---
+    # Grand Total (จุดที่เคย Error 1)
     pdf.ln(5)
     
-    # แก้ไข: ต้องระบุชื่อฟอนต์เสมอ และใช้ตัวธรรมดา '' เพราะเรามีไฟล์ฟอนต์แค่ไฟล์เดียว
+    # แก้ไข: ระบุชื่อฟอนต์ให้ชัดเจน (Family + Style + Size)
     if has_font:
-        pdf.set_font('THSarabunNew', '', 16) 
+        pdf.set_font('THSarabunNew', 'B', 16) # ใช้ตัวหนา (B) พร้อมระบุชื่อฟอนต์
     else:
-        pdf.set_font('Arial', 'B', 12) # ถ้าไม่มีฟอนต์ไทย ใช้ Arial ตัวหนาแทนได้
+        pdf.set_font('Arial', 'B', 12)
     
     pdf.cell(160, 10, "GRAND TOTAL", 0, 0, 'R')
     pdf.cell(30, 10, f"{total:,.2f}", 1, 1, 'R')
-      
-    # Footer
+    
+    # Footer (จุดที่เคย Error 2)
     pdf.ln(20)
-    pdf.set_font(style='')
+    
+    # แก้ไข: ระบุชื่อฟอนต์ให้ชัดเจน เพื่อกลับเป็นตัวปกติ
+    if has_font:
+        pdf.set_font('THSarabunNew', '', 16)
+    else:
+        pdf.set_font('Arial', '', 12)
+        
     pdf.cell(100, 10, "____________________", 0, 0, 'C')
     pdf.cell(90, 10, "____________________", 0, 1, 'C')
     pdf.cell(100, 5, "Authorized Signature", 0, 0, 'C')
@@ -226,25 +236,28 @@ with tab_sale:
             save_data(st.session_state.df_orders, FILE_ORDERS)
             
             # Generate PDF
-            pdf_bytes = create_pdf(new_order, cart_df)
-            b64 = base64.b64encode(pdf_bytes).decode()
-            
-            # Show Download & Email Link
-            st.success("บันทึกข้อมูลเรียบร้อย!")
-            
-            col_d, col_e = st.columns(2)
-            with col_d:
-                href = f'<a href="data:application/octet-stream;base64,{b64}" download="{order_id}.pdf" style="text-decoration:none;"><button style="width:100%;padding:10px;background:green;color:white;border:none;border-radius:5px;">📥 โหลด PDF</button></a>'
-                st.markdown(href, unsafe_allow_html=True)
-            with col_e:
-                # สร้าง Mailto Link (Client Side Email)
-                subject = f"ใบสั่งซื้อ {order_id}"
-                body = f"เรียน {selected_cust},%0D%0A%0D%0Aแนบใบสั่งซื้อ {order_id} ยอดรวม {grand_total:,.2f} บาท%0D%0A%0D%0Aขอบคุณครับ"
-                mail_href = f'<a href="mailto:?subject={subject}&body={body}" target="_blank" style="text-decoration:none;"><button style="width:100%;padding:10px;background:orange;color:white;border:none;border-radius:5px;">📧 ส่งอีเมล</button></a>'
-                st.markdown(mail_href, unsafe_allow_html=True)
+            try:
+                pdf_bytes = create_pdf(new_order, cart_df)
+                b64 = base64.b64encode(pdf_bytes).decode()
                 
-            # Clear Cart
-            st.session_state.cart = []
+                # Show Download & Email Link
+                st.success("บันทึกข้อมูลเรียบร้อย!")
+                
+                col_d, col_e = st.columns(2)
+                with col_d:
+                    href = f'<a href="data:application/octet-stream;base64,{b64}" download="{order_id}.pdf" style="text-decoration:none;"><button style="width:100%;padding:10px;background:green;color:white;border:none;border-radius:5px;">📥 โหลด PDF</button></a>'
+                    st.markdown(href, unsafe_allow_html=True)
+                with col_e:
+                    # สร้าง Mailto Link (Client Side Email)
+                    subject = f"ใบสั่งซื้อ {order_id}"
+                    body = f"เรียน {selected_cust},%0D%0A%0D%0Aแนบใบสั่งซื้อ {order_id} ยอดรวม {grand_total:,.2f} บาท%0D%0A%0D%0Aขอบคุณครับ"
+                    mail_href = f'<a href="mailto:?subject={subject}&body={body}" target="_blank" style="text-decoration:none;"><button style="width:100%;padding:10px;background:orange;color:white;border:none;border-radius:5px;">📧 ส่งอีเมล</button></a>'
+                    st.markdown(mail_href, unsafe_allow_html=True)
+                    
+                # Clear Cart
+                st.session_state.cart = []
+            except Exception as e:
+                st.error(f"เกิดข้อผิดพลาดในการสร้าง PDF: {e}")
 
 # === TAB 2: ลูกค้า ===
 with tab_cust:
@@ -299,4 +312,3 @@ with tab_hist:
         st.download_button("📥 Backup ประวัติการขาย (CSV)", csv, "my_sales_history.csv", "text/csv")
     else:
         st.info("ยังไม่มีรายการขาย")
-
