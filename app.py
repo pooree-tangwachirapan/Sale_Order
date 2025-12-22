@@ -45,7 +45,6 @@ if 'data_loaded' not in st.session_state:
 
 # --- 3. AUTHENTICATION (Login) ---
 def check_login(username, password):
-    # ในการใช้งานจริง ควรซ่อน Password หรือใช้ Environment Variable
     users = {
         "sale01": "1234",
         "sale02": "1234",
@@ -73,46 +72,47 @@ if not st.session_state.logged_in:
                 st.error("Username หรือ Password ผิดพลาด")
     st.stop()
 
-# --- 4. PDF GENERATOR (รองรับภาษาไทย) ---
+# --- 4. PDF GENERATOR (ปรับปรุงสำหรับ fpdf2) ---
 def create_pdf(order_data, items_df):
     pdf = FPDF()
     pdf.add_page()
     
     # *** ตรวจสอบฟอนต์ไทย ***
-    font_path = 'THSarabunNew.ttf' # ต้องมีไฟล์นี้ในโฟลเดอร์เดียวกัน
+    font_path = 'THSarabunNew.ttf' 
     has_font = os.path.exists(font_path)
     
     if has_font:
-        pdf.add_font('THSarabunNew', '', font_path, uni=True)
-        pdf.add_font('THSarabunNew', 'B', font_path, uni=True) # เพิ่มตัวหนา (ใช้ไฟล์เดิมถ้าไม่มีไฟล์ bold แยก)
+        # fpdf2 ไม่ต้องใช้ uni=True
+        pdf.add_font('THSarabunNew', '', font_path)
+        pdf.add_font('THSarabunNew', 'B', font_path) # ใช้ไฟล์เดิมแทนตัวหนาไปก่อน
         pdf.set_font('THSarabunNew', '', 16)
     else:
-        pdf.set_font('Arial', '', 12) # Fallback
+        pdf.set_font('Helvetica', '', 12)
     
     # Header
-    pdf.cell(0, 10, f"SALE ORDER / ใบสั่งขาย", 0, 1, 'C')
+    pdf.cell(0, 10, text=f"SALE ORDER / ใบสั่งขาย", align='C', new_x="LMARGIN", new_y="NEXT")
     pdf.ln(5)
     
     # Customer Info
-    pdf.cell(0, 8, f"NO: {order_data['order_id']}  |  Date: {order_data['date']}", 0, 1, 'R')
+    pdf.cell(0, 8, text=f"NO: {order_data['order_id']}  |  Date: {order_data['date']}", align='R', new_x="LMARGIN", new_y="NEXT")
+    
     if has_font:
-        pdf.cell(0, 8, f"Customer: {order_data['customer']}", 0, 1, 'L')
-        # ดึงที่อยู่
+        pdf.cell(0, 8, text=f"Customer: {order_data['customer']}", align='L', new_x="LMARGIN", new_y="NEXT")
         cust_info = st.session_state.df_customers[st.session_state.df_customers['name'] == order_data['customer']]
         if not cust_info.empty:
             address = cust_info.iloc[0]['address']
-            pdf.multi_cell(0, 8, f"Address: {address}")
+            pdf.multi_cell(0, 8, text=f"Address: {address}")
     else:
-         pdf.cell(0, 8, f"Customer: {order_data['customer']} (Thai font missing)", 0, 1, 'L')
+         pdf.cell(0, 8, text=f"Customer: {order_data['customer']} (Thai font missing)", align='L', new_x="LMARGIN", new_y="NEXT")
 
     pdf.ln(10)
     
     # Table Header
     pdf.set_fill_color(200, 220, 255)
-    pdf.cell(100, 10, "Description", 1, 0, 'C', 1)
-    pdf.cell(30, 10, "Qty", 1, 0, 'C', 1)
-    pdf.cell(30, 10, "Price", 1, 0, 'C', 1)
-    pdf.cell(30, 10, "Total", 1, 1, 'C', 1)
+    pdf.cell(100, 10, "Description", border=1, align='C', fill=True)
+    pdf.cell(30, 10, "Qty", border=1, align='C', fill=True)
+    pdf.cell(30, 10, "Price", border=1, align='C', fill=True)
+    pdf.cell(30, 10, "Total", border=1, align='C', fill=True, new_x="LMARGIN", new_y="NEXT")
     
     # Items
     total = 0
@@ -123,42 +123,38 @@ def create_pdf(order_data, items_df):
         line_total = qty * price
         total += line_total
         
-        # Reset font for items
-        if has_font: pdf.set_font('THSarabunNew', '', 16)
-        else: pdf.set_font('Arial', '', 12)
-
-        pdf.cell(100, 10, f"{name}", 1)
-        pdf.cell(30, 10, f"{qty}", 1, 0, 'C')
-        pdf.cell(30, 10, f"{price:,.0f}", 1, 0, 'R')
-        pdf.cell(30, 10, f"{line_total:,.2f}", 1, 1, 'R')
+        pdf.cell(100, 10, text=f"{name}", border=1)
+        pdf.cell(30, 10, text=f"{qty}", border=1, align='C')
+        pdf.cell(30, 10, text=f"{price:,.0f}", border=1, align='R')
+        pdf.cell(30, 10, text=f"{line_total:,.2f}", border=1, align='R', new_x="LMARGIN", new_y="NEXT")
         
-    # Grand Total (จุดที่เคย Error 1)
+    # Grand Total
     pdf.ln(5)
-    
-    # แก้ไข: ระบุชื่อฟอนต์ให้ชัดเจน (Family + Style + Size)
     if has_font:
-        pdf.set_font('THSarabunNew', 'B', 16) # ใช้ตัวหนา (B) พร้อมระบุชื่อฟอนต์
+        pdf.set_font('THSarabunNew', 'B', 16)
     else:
-        pdf.set_font('Arial', 'B', 12)
+        pdf.set_font('Helvetica', 'B', 12)
     
-    pdf.cell(160, 10, "GRAND TOTAL", 0, 0, 'R')
-    pdf.cell(30, 10, f"{total:,.2f}", 1, 1, 'R')
+    pdf.cell(160, 10, "GRAND TOTAL", border=0, align='R')
+    pdf.cell(30, 10, f"{total:,.2f}", border=1, align='R', new_x="LMARGIN", new_y="NEXT")
     
-    # Footer (จุดที่เคย Error 2)
+    # Footer
     pdf.ln(20)
-    
-    # แก้ไข: ระบุชื่อฟอนต์ให้ชัดเจน เพื่อกลับเป็นตัวปกติ
     if has_font:
         pdf.set_font('THSarabunNew', '', 16)
     else:
-        pdf.set_font('Arial', '', 12)
+        pdf.set_font('Helvetica', '', 12)
         
-    pdf.cell(100, 10, "____________________", 0, 0, 'C')
-    pdf.cell(90, 10, "____________________", 0, 1, 'C')
-    pdf.cell(100, 5, "Authorized Signature", 0, 0, 'C')
-    pdf.cell(90, 5, "Customer Signature", 0, 1, 'C')
+    pdf.cell(90, 10, "____________________", align='C')
+    pdf.cell(10, 10, "", align='C') # Space
+    pdf.cell(90, 10, "____________________", align='C', new_x="LMARGIN", new_y="NEXT")
+    
+    pdf.cell(90, 5, "Authorized Signature", align='C')
+    pdf.cell(10, 5, "", align='C') # Space
+    pdf.cell(90, 5, "Customer Signature", align='C', new_x="LMARGIN", new_y="NEXT")
 
-    return pdf.output(dest='S').encode('latin-1')
+    # Output as bytes directly (fpdf2)
+    return pdf.output()
 
 # --- 5. MAIN APP UI ---
 user = st.session_state.user
@@ -169,7 +165,7 @@ if st.sidebar.button("Logout", type="secondary"):
 
 # กรองข้อมูลเฉพาะ User นี้ (Data Isolation)
 my_customers = st.session_state.df_customers[st.session_state.df_customers['owner'] == user]
-all_products = st.session_state.df_products # สินค้าเห็นร่วมกันหมด
+all_products = st.session_state.df_products 
 
 tab_sale, tab_cust, tab_prod, tab_hist = st.tabs(["🛒 เปิดบิล", "👥 ลูกค้า", "📦 สินค้า", "📜 ประวัติ"])
 
@@ -177,7 +173,6 @@ tab_sale, tab_cust, tab_prod, tab_hist = st.tabs(["🛒 เปิดบิล", 
 with tab_sale:
     st.subheader("สร้างใบสั่งขายใหม่")
     
-    # Session สำหรับตะกร้าสินค้าชั่วคราว
     if 'cart' not in st.session_state: st.session_state.cart = []
     
     # 1. เลือกลูกค้า
@@ -218,29 +213,27 @@ with tab_sale:
         note = st.text_area("หมายเหตุ", height=60)
         
         if st.button("✅ บันทึกและสร้าง PDF", type="primary", use_container_width=True):
-            # Generate Order ID
             order_id = f"INV-{datetime.now().strftime('%Y%m%d')}-{len(st.session_state.df_orders)+1:03d}"
             
-            # Save to DF
             new_order = {
                 'order_id': order_id,
                 'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
                 'customer': selected_cust,
-                'items': str(st.session_state.cart), # เก็บแบบ Text ง่ายๆ
+                'items': str(st.session_state.cart),
                 'total_price': grand_total,
                 'owner': user,
                 'note': note
             }
-            # Add to Main DF and Save CSV
             st.session_state.df_orders = pd.concat([st.session_state.df_orders, pd.DataFrame([new_order])], ignore_index=True)
             save_data(st.session_state.df_orders, FILE_ORDERS)
             
-            # Generate PDF
             try:
+                # สร้าง PDF ด้วยฟังก์ชันใหม่
                 pdf_bytes = create_pdf(new_order, cart_df)
+                
+                # แปลงเป็น Base64 โดยตรง (ไม่ต้อง encode 'latin-1')
                 b64 = base64.b64encode(pdf_bytes).decode()
                 
-                # Show Download & Email Link
                 st.success("บันทึกข้อมูลเรียบร้อย!")
                 
                 col_d, col_e = st.columns(2)
@@ -248,18 +241,16 @@ with tab_sale:
                     href = f'<a href="data:application/octet-stream;base64,{b64}" download="{order_id}.pdf" style="text-decoration:none;"><button style="width:100%;padding:10px;background:green;color:white;border:none;border-radius:5px;">📥 โหลด PDF</button></a>'
                     st.markdown(href, unsafe_allow_html=True)
                 with col_e:
-                    # สร้าง Mailto Link (Client Side Email)
                     subject = f"ใบสั่งซื้อ {order_id}"
                     body = f"เรียน {selected_cust},%0D%0A%0D%0Aแนบใบสั่งซื้อ {order_id} ยอดรวม {grand_total:,.2f} บาท%0D%0A%0D%0Aขอบคุณครับ"
                     mail_href = f'<a href="mailto:?subject={subject}&body={body}" target="_blank" style="text-decoration:none;"><button style="width:100%;padding:10px;background:orange;color:white;border:none;border-radius:5px;">📧 ส่งอีเมล</button></a>'
                     st.markdown(mail_href, unsafe_allow_html=True)
                     
-                # Clear Cart
                 st.session_state.cart = []
             except Exception as e:
                 st.error(f"เกิดข้อผิดพลาดในการสร้าง PDF: {e}")
 
-# === TAB 2: ลูกค้า ===
+# === TAB 2, 3, 4 (คงเดิม) ===
 with tab_cust:
     st.subheader("จัดการลูกค้า")
     with st.expander("➕ เพิ่มลูกค้าใหม่"):
@@ -277,10 +268,8 @@ with tab_cust:
                 save_data(st.session_state.df_customers, FILE_CUSTOMERS)
                 st.success(f"เพิ่ม {n_name} แล้ว")
                 st.rerun()
-    
     st.dataframe(my_customers, hide_index=True, use_container_width=True)
 
-# === TAB 3: สินค้า ===
 with tab_prod:
     st.subheader("รายการสินค้า (ส่วนกลาง)")
     with st.expander("➕ เพิ่มสินค้าใหม่"):
@@ -294,20 +283,15 @@ with tab_prod:
                 save_data(st.session_state.df_products, FILE_PRODUCTS)
                 st.success("บันทึกสินค้าแล้ว")
                 st.rerun()
-    
     st.dataframe(all_products, hide_index=True, use_container_width=True)
 
-# === TAB 4: ประวัติ ===
 with tab_hist:
     st.subheader("ประวัติการขาย")
     my_orders = st.session_state.df_orders[st.session_state.df_orders['owner'] == user]
-    # เรียงลำดับล่าสุดขึ้นก่อน
     my_orders = my_orders.sort_values(by='date', ascending=False)
     
     if not my_orders.empty:
         st.dataframe(my_orders[['order_id', 'date', 'customer', 'total_price']], hide_index=True, use_container_width=True)
-        
-        # ปุ่ม Export CSV เพื่อ Backup
         csv = my_orders.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Backup ประวัติการขาย (CSV)", csv, "my_sales_history.csv", "text/csv")
     else:
