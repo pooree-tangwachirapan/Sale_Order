@@ -3,8 +3,9 @@ import pandas as pd
 from datetime import datetime
 from fpdf import FPDF
 import base64
-from github import Github, InputGitTreeElement
+from github import Github
 import io
+import os
 
 # --- 1. CONFIG & SETUP ---
 st.set_page_config(page_title="Mobile Sale System (GitDB)", layout="centered")
@@ -253,4 +254,5 @@ with tab3:
                 save_data_to_github(st.session_state.df_products, FILE_PRODUCTS, f"Add product {p_name}")
             st.success("เพิ่มสินค้าเรียบร้อย")
             st.rerun()
+
 
