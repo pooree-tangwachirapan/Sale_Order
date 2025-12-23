@@ -91,38 +91,70 @@ if not st.session_state.logged_in:
     st.stop()
 
 # --- 4. PDF GENERATOR ---
+# ค้นหาบรรทัด def create_pdf(order_data, items_df): แล้วแก้ไส้ในทั้งหมดเป็นแบบนี้ครับ
+
 def create_pdf(order_data, items_df):
     pdf = FPDF()
     pdf.add_page()
     
-    font_path = 'THSarabunNew.ttf' 
-    has_font = False # เปลี่ยนเป็น True ถ้าอัปโหลดฟอนต์แล้ว
-    # has_font = True # เปิดบรรทัดนี้ถ้ามีไฟล์ฟอนต์ใน GitHub
-
-    if has_font:
+    # --- ส่วนจัดการฟอนต์ (แก้ไขใหม่) ---
+    font_path = 'THSarabunNew.ttf'  # ต้องตรงกับชื่อไฟล์ใน GitHub เป๊ะๆ
+    
+    # เช็คว่ามีไฟล์ฟอนต์จริงไหม
+    if os.path.exists(font_path):
         pdf.add_font('THSarabunNew', '', font_path)
         pdf.add_font('THSarabunNew', 'B', font_path)
         pdf.set_font('THSarabunNew', '', 16)
+        has_font = True
     else:
+        # ถ้าหาไฟล์ไม่เจอ ให้ใช้ฟอนต์อังกฤษ และแจ้งเตือนใน PDF
         pdf.set_font('Helvetica', '', 12)
-    
-    # Header
+        has_font = False
+        st.error("ไม่พบไฟล์ฟอนต์ THSarabunNew.ttf ใน GitHub! ภาษาไทยจะไม่แสดง")
+
+    # --- Header ---
+    # ใช้ text=... เพื่อความปลอดภัยใน fpdf2
     pdf.cell(0, 10, text=f"SALE ORDER: {order_data['order_id']}", align='C', new_x="LMARGIN", new_y="NEXT")
     pdf.ln(5)
-    pdf.cell(0, 8, text=f"Customer: {order_data['customer']}", align='L', new_x="LMARGIN", new_y="NEXT")
+    
+    # --- Customer Info ---
+    # ถ้าไม่มีฟอนต์ไทย ต้องแปลงชื่อลูกค้าเป็นอังกฤษ หรือเว้นว่างไว้เพื่อกัน Error
+    cust_name = order_data['customer']
+    if not has_font:
+        # ถ้าไม่มีฟอนต์ไทยแต่ชื่อเป็นไทย โปรแกรมจะ Error ตรงนี้ ดังนั้นต้องดักไว้
+        try:
+            cust_name.encode('latin-1') # ลองทดสอบว่าเป็นอังกฤษล้วนไหม
+        except UnicodeEncodeError:
+            cust_name = "Customer Name (Thai Font Missing)" # ถ้าเป็นไทย ให้เปลี่ยนข้อความแทน
+            
+    pdf.cell(0, 8, text=f"Customer: {cust_name}", align='L', new_x="LMARGIN", new_y="NEXT")
     pdf.ln(5)
     
-    # Items
+    # --- Items ---
     total = 0
-    pdf.cell(100, 10, "Item", 1); pdf.cell(30, 10, "Qty", 1); pdf.cell(40, 10, "Price", 1, new_x="LMARGIN", new_y="NEXT")
+    # Header ตาราง
+    pdf.cell(100, 10, "Item", border=1)
+    pdf.cell(30, 10, "Qty", border=1)
+    pdf.cell(40, 10, "Price", border=1, new_x="LMARGIN", new_y="NEXT")
     
     for idx, row in items_df.iterrows():
         total += row['qty'] * row['price']
-        pdf.cell(100, 10, text=str(row['name']), border=1)
+        
+        # จัดการชื่อสินค้า (เผื่อเป็นภาษาไทย)
+        item_name = str(row['name'])
+        if not has_font:
+             try:
+                item_name.encode('latin-1')
+             except UnicodeEncodeError:
+                item_name = "Item (Thai Font Missing)"
+
+        pdf.cell(100, 10, text=item_name, border=1)
         pdf.cell(30, 10, text=str(row['qty']), border=1)
         pdf.cell(40, 10, text=f"{row['price']}", border=1, new_x="LMARGIN", new_y="NEXT")
         
-    pdf.cell(130, 10, "Total", 1); pdf.cell(40, 10, f"{total:,.2f}", 1, new_x="LMARGIN", new_y="NEXT")
+    # Grand Total
+    pdf.cell(130, 10, "Total", border=1)
+    pdf.cell(40, 10, f"{total:,.2f}", border=1, new_x="LMARGIN", new_y="NEXT")
     
     return pdf.output()
 
@@ -221,3 +253,4 @@ with tab3:
                 save_data_to_github(st.session_state.df_products, FILE_PRODUCTS, f"Add product {p_name}")
             st.success("เพิ่มสินค้าเรียบร้อย")
             st.rerun()
+
